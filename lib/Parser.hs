@@ -9,6 +9,7 @@ where
 -- import qualified Data.Text as T
 
 import Control.Monad.State
+import Control.Monad.Except
 import Data.Text (Text)
 import Text.Regex.TDFA
 import Text.Regex.TDFA.Text ()
@@ -20,18 +21,8 @@ import Text.Regex.TDFA.Text ()
 -- [x] x
 -- [ ] f x
 
-type ParserState a = State [Text] a
+type Parser a = ExceptT Text (State [Text]) a
 
--- nextToken :: ParserState (Maybe Text)
--- nextToken = do
---   tokens <- get
---   case tokens of
---     [] -> return Nothing
---     token : tokens' -> do
---         put tokens'
---         return token
---
---
 data Term
   = BoolLiteral Bool
   | Var Text
@@ -43,7 +34,7 @@ varRegex = "[a-zA-Z_][a-zA-Z0-9_]*"
 tokenize :: Text -> [Text]
 tokenize program = getAllTextMatches (program =~ ("[a-zA-Z0-9_]+" :: Text))
 
-nextToken :: ParserState (Maybe Text)
+nextToken :: Parser (Maybe Text)
 nextToken = do
   tokens <- get
   case tokens of
@@ -52,17 +43,17 @@ nextToken = do
       put rest
       return $ Just t
 
-parseExpression :: ParserState (Either Text Term)
+parseExpression :: Parser Term
 parseExpression = do
   token <- nextToken
   case token of
-    Just "true" -> return $ Right $ BoolLiteral True
-    Just "false" -> return $ Right $ BoolLiteral False
-    Just var | var =~ varRegex -> return $ Right $ Var var
-    Just other -> return $ Left $ "Unexpected token: " <> other
-    Nothing -> return $ Left "Unexpected end of program"
+    Nothing -> throwError "Unexpected end of program"
+    Just "true" -> return $ BoolLiteral True
+    Just "false" -> return $ BoolLiteral False
+    Just var | var =~ varRegex -> return $ Var var
+    Just other -> throwError $ "Unexpected token: " <> other
 
 parse :: Text -> Either Text Term
 parse program =
   let tokens = tokenize program
-   in evalState parseExpression tokens
+   in evalState (runExceptT parseExpression) tokens
